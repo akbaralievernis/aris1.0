@@ -23,7 +23,7 @@
 ### Предварительные требования
 
 - Node.js 18+
-- Docker & Docker Compose
+- Docker и Docker Compose (или docker compose)
 - Python 3.8+ (для ML моделей)
 - MongoDB 6.0+
 - Redis 7.0+
