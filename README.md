@@ -35,13 +35,20 @@
 git clone https://github.com/yourusername/aris-neuro.git
 cd aris-neuro
 
-# Установка зависимостей
+# Установка зависимостей (backend)
 cd backend/node
 npm install
+
+# Фронтенд — статическая страница, сборка не требуется
+# Для локального просмотра в отдельном терминале:
+cd ../../frontend
+python -m http.server 5173
+cd ..
 
 # Настройка окружения
 cp .env.example .env.development
 # Отредактируйте .env.development файл
 
-# Запуск в development режиме
+# Запуск в development режиме (backend)
+cd backend/node
 npm run dev

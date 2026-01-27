@@ -1,5 +1,3 @@
-import './style.css';
-
 const navToggle = document.querySelector('.nav__toggle');
 const navMenu = document.querySelector('#nav-menu');
 
@@ -12,19 +10,21 @@ if (navToggle && navMenu) {
 }
 
 const revealElements = document.querySelectorAll('.reveal');
-const observer = new IntersectionObserver(
-  (entries) => {
-    entries.forEach((entry) => {
-      if (entry.isIntersecting) {
-        entry.target.classList.add('reveal--visible');
-        observer.unobserve(entry.target);
-      }
-    });
-  },
-  { threshold: 0.2 }
-);
+if (revealElements.length > 0) {
+  const observer = new IntersectionObserver(
+    (entries) => {
+      entries.forEach((entry) => {
+        if (entry.isIntersecting) {
+          entry.target.classList.add('reveal--visible');
+          observer.unobserve(entry.target);
+        }
+      });
+    },
+    { threshold: 0.2 }
+  );
 
-revealElements.forEach((element) => observer.observe(element));
+  revealElements.forEach((element) => observer.observe(element));
+}
 
 const year = document.querySelector('#year');
 if (year) {

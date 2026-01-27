@@ -6,10 +6,7 @@ services:
       context: .
       dockerfile: Dockerfile.frontend
     ports:
-      - "3000:3000"
-    environment:
-      - VITE_API_URL=http://localhost:3005
-      - VITE_WS_URL=ws://localhost:3005
+      - "3000:80"
     depends_on:
       - backend
     networks:
@@ -82,7 +79,7 @@ services:
     volumes:
       - ./nginx.conf:/etc/nginx/nginx.conf
       - ./ssl:/etc/nginx/ssl
-      - ./frontend/dist:/usr/share/nginx/html
+      - ./frontend:/usr/share/nginx/html
     depends_on:
       - frontend
       - backend
