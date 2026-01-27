@@ -14,7 +14,7 @@
 - Python 3.10+
 - MongoDB 6.0+
 - Redis 7.0+
-- Docker и Docker Compose (опционально)
+- Docker и Docker Compose (или docker compose, опционально)
 
 ### Установка
 
@@ -36,6 +36,8 @@ cp .env.example .env.development
 # Отредактируйте .env.development с вашими настройками
 
 # Запуск через Docker Compose
+docker compose up -d
+# или
 docker-compose up -d
 ```
 
