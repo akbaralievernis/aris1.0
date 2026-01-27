@@ -1,0 +1,29 @@
+FROM node:18-alpine
+
+WORKDIR /app
+
+# Install system deps needed by backend
+RUN apk add --no-cache \
+    python3 \
+    py3-pip \
+    ffmpeg \
+    libgomp \
+    && ln -sf python3 /usr/bin/python
+
+# Copy backend package info and install production deps
+COPY backend/node/package*.json ./
+RUN npm ci --only=production
+
+# Copy backend code
+COPY backend/node/ ./
+
+# Create non-root user
+RUN addgroup -g 1001 -S nodejs && \
+    adduser -S nodejs -u 1001 && \
+    chown -R nodejs:nodejs /app
+
+USER nodejs
+
+EXPOSE 3005
+
+CMD ["node", "server.js"]

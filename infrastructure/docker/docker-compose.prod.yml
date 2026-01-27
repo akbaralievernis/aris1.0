@@ -1,0 +1,335 @@
+version: '3.8'
+
+services:
+  # MongoDB с репликацией
+  mongodb-primary:
+    image: mongo:6.0
+    container_name: aris-mongodb-primary
+    restart: always
+    command: mongod --replSet rs0 --bind_ip_all --auth
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_ROOT_USER}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_ROOT_PASSWORD}
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongodb_primary_data:/data/db
+      - ./config/mongodb/init.js:/docker-entrypoint-initdb.d/init.js:ro
+    networks:
+      - aris-network-prod
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  mongodb-secondary:
+    image: mongo:6.0
+    container_name: aris-mongodb-secondary
+    restart: always
+    command: mongod --replSet rs0 --bind_ip_all --auth
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_ROOT_USER}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_ROOT_PASSWORD}
+    volumes:
+      - mongodb_secondary_data:/data/db
+    networks:
+      - aris-network-prod
+    depends_on:
+      - mongodb-primary
+
+  mongodb-arbiter:
+    image: mongo:6.0
+    container_name: aris-mongodb-arbiter
+    restart: always
+    command: mongod --replSet rs0 --bind_ip_all --auth
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_ROOT_USER}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_ROOT_PASSWORD}
+    volumes:
+      - mongodb_arbiter_data:/data/db
+    networks:
+      - aris-network-prod
+    depends_on:
+      - mongodb-primary
+
+  # Redis кластер
+  redis-node-1:
+    image: redis:7-alpine
+    container_name: aris-redis-node-1
+    restart: always
+    command: redis-server --requirepass ${REDIS_PASSWORD} --appendonly yes --cluster-enabled yes --cluster-config-file nodes.conf --cluster-node-timeout 5000
+    volumes:
+      - redis_node_1_data:/data
+    networks:
+      - aris-network-prod
+    ports:
+      - "6379:6379"
+
+  redis-node-2:
+    image: redis:7-alpine
+    container_name: aris-redis-node-2
+    restart: always
+    command: redis-server --requirepass ${REDIS_PASSWORD} --appendonly yes --cluster-enabled yes --cluster-config-file nodes.conf --cluster-node-timeout 5000
+    volumes:
+      - redis_node_2_data:/data
+    networks:
+      - aris-network-prod
+    depends_on:
+      - redis-node-1
+
+  redis-node-3:
+    image: redis:7-alpine
+    container_name: aris-redis-node-3
+    restart: always
+    command: redis-server --requirepass ${REDIS_PASSWORD} --appendonly yes --cluster-enabled yes --cluster-config-file nodes.conf --cluster-node-timeout 5000
+    volumes:
+      - redis_node_3_data:/data
+    networks:
+      - aris-network-prod
+    depends_on:
+      - redis-node-1
+
+  # Backend с масштабированием
+  backend:
+    build:
+      context: ./backend/node
+      dockerfile: Dockerfile.production
+    container_name: aris-backend
+    restart: always
+    deploy:
+      mode: replicated
+      replicas: 3
+      resources:
+        limits:
+          memory: 1G
+          cpus: '1.0'
+        reservations:
+          memory: 512M
+          cpus: '0.5'
+      update_config:
+        parallelism: 1
+        delay: 10s
+        order: start-first
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 3
+        window: 120s
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+      - JWT_SECRET=${JWT_SECRET}
+      - MONGODB_URI=mongodb://${MONGO_ROOT_USER}:${MONGO_ROOT_PASSWORD}@mongodb-primary:27017,mongodb-secondary:27017/${MONGO_DATABASE}?replicaSet=rs0&authSource=admin
+      - REDIS_URL=redis://:${REDIS_PASSWORD}@redis-node-1:6379,redis-node-2:6379,redis-node-3:6379
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - MISTRAL_API_KEY=${MISTRAL_API_KEY}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - SENTRY_DSN=${SENTRY_DSN}
+      - LOG_LEVEL=info
+    expose:
+      - "3000"
+    volumes:
+      - ./logs/backend:/app/logs
+      - ./temp:/app/temp:rw
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    networks:
+      - aris-network-prod
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.backend.rule=Host(`${DOMAIN}`)"
+      - "traefik.http.routers.backend.entrypoints=websecure"
+      - "traefik.http.routers.backend.tls.certresolver=myresolver"
+      - "traefik.http.services.backend.loadbalancer.server.port=3000"
+      - "traefik.http.services.backend.loadbalancer.healthcheck.path=/health"
+      - "traefik.http.services.backend.loadbalancer.healthcheck.interval=10s"
+
+  # Python ML с GPU
+  python-ml:
+    build:
+      context: ./backend/python
+      dockerfile: Dockerfile.production
+    container_name: aris-python-ml
+    restart: always
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    environment:
+      - PYTHONUNBUFFERED=1
+      - CUDA_VISIBLE_DEVICES=all
+      - WHISPER_MODEL=${WHISPER_MODEL:-large-v3}
+      - TTS_MODEL=${TTS_MODEL:-tts_models/en/vctk/vits}
+      - REDIS_URL=redis://:${REDIS_PASSWORD}@redis-node-1:6379
+    volumes:
+      - ./models:/app/models
+      - ./logs/python:/app/logs
+      - ./temp:/app/temp:rw
+    healthcheck:
+      test: ["CMD", "python", "-c", "import torch; assert torch.cuda.is_available()"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+    networks:
+      - aris-network-prod
+
+  # Traefik для production
+  traefik:
+    image: traefik:v2.10
+    container_name: aris-traefik
+    restart: always
+    command:
+      - "--api.dashboard=true"
+      - "--api.insecure=false"
+      - "--providers.docker=true"
+      - "--providers.docker.exposedbydefault=false"
+      - "--providers.docker.network=aris-network-prod"
+      - "--entrypoints.web.address=:80"
+      - "--entrypoints.websecure.address=:443"
+      - "--entrypoints.web.http.redirections.entrypoint.to=websecure"
+      - "--entrypoints.web.http.redirections.entrypoint.scheme=https"
+      - "--certificatesresolvers.myresolver.acme.tlschallenge=true"
+      - "--certificatesresolvers.myresolver.acme.email=${SSL_EMAIL}"
+      - "--certificatesresolvers.myresolver.acme.storage=/letsencrypt/acme.json"
+      - "--certificatesresolvers.myresolver.acme.keytype=EC256"
+      - "--log.level=INFO"
+      - "--accesslog=true"
+      - "--metrics.prometheus=true"
+    ports:
+      - "80:80"
+      - "443:443"
+      - "8080:8080" # Dashboard (только через VPN)
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./traefik/letsencrypt:/letsencrypt
+      - ./traefik/config:/etc/traefik:ro
+    networks:
+      - aris-network-prod
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.traefik.rule=Host(`traefik.${DOMAIN}`) && (ClientIP(`172.16.0.0/12`) || ClientIP(`192.168.0.0/16`) || ClientIP(`10.0.0.0/8`))"
+      - "traefik.http.routers.traefik.entrypoints=websecure"
+      - "traefik.http.routers.traefik.tls.certresolver=myresolver"
+      - "traefik.http.routers.traefik.middlewares=auth"
+      - "traefik.http.middlewares.auth.basicauth.users=${TRAEFIK_AUTH}"
+
+  # Мониторинг stack
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: aris-prometheus
+    restart: always
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--storage.tsdb.retention.time=30d'
+      - '--web.enable-remote-write-receiver'
+      - '--web.enable-lifecycle'
+    volumes:
+      - ./monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    networks:
+      - aris-network-prod
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.prometheus.rule=Host(`prometheus.${DOMAIN}`)"
+      - "traefik.http.routers.prometheus.entrypoints=websecure"
+      - "traefik.http.routers.prometheus.tls.certresolver=myresolver"
+      - "traefik.http.routers.prometheus.middlewares=auth"
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: aris-grafana
+    restart: always
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_PASSWORD}
+      - GF_INSTALL_PLUGINS=grafana-piechart-panel,grafana-clock-panel,ryantxu-ajax-panel
+      - GF_SERVER_ROOT_URL=https://grafana.${DOMAIN}
+      - GF_SERVER_SERVE_FROM_SUB_PATH=true
+      - GF_SECURITY_ALLOW_EMBEDDING=true
+      - GF_AUTH_GENERIC_OAUTH_ENABLED=true
+      - GF_AUTH_GENERIC_OAUTH_NAME=Keycloak
+      - GF_AUTH_GENERIC_OAUTH_CLIENT_ID=grafana
+      - GF_AUTH_GENERIC_OAUTH_CLIENT_SECRET=${GRAFANA_OAUTH_SECRET}
+      - GF_AUTH_GENERIC_OAUTH_SCOPES=openid profile email
+      - GF_AUTH_GENERIC_OAUTH_AUTH_URL=https://auth.${DOMAIN}/realms/aris/protocol/openid-connect/auth
+      - GF_AUTH_GENERIC_OAUTH_TOKEN_URL=https://auth.${DOMAIN}/realms/aris/protocol/openid-connect/token
+      - GF_AUTH_GENERIC_OAUTH_API_URL=https://auth.${DOMAIN}/realms/aris/protocol/openid-connect/userinfo
+      - GF_AUTH_GENERIC_OAUTH_ROLE_ATTRIBUTE_PATH=contains(roles[*], 'admin') && 'Admin' || contains(roles[*], 'editor') && 'Editor' || 'Viewer'
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./monitoring/grafana/dashboards:/etc/grafana/provisioning/dashboards
+      - ./monitoring/grafana/datasources:/etc/grafana/provisioning/datasources
+    networks:
+      - aris-network-prod
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.grafana.rule=Host(`grafana.${DOMAIN}`)"
+      - "traefik.http.routers.grafana.entrypoints=websecure"
+      - "traefik.http.routers.grafana.tls.certresolver=myresolver"
+
+  # Keycloak для аутентификации (опционально)
+  keycloak:
+    image: quay.io/keycloak/keycloak:22.0
+    container_name: aris-keycloak
+    restart: always
+    command: start --optimized
+    environment:
+      - KEYCLOAK_ADMIN=${KEYCLOAK_ADMIN}
+      - KEYCLOAK_ADMIN_PASSWORD=${KEYCLOAK_ADMIN_PASSWORD}
+      - KC_DB=postgres
+      - KC_DB_URL=jdbc:postgresql://keycloak-db:5432/keycloak
+      - KC_DB_USERNAME=keycloak
+      - KC_DB_PASSWORD=${KEYCLOAK_DB_PASSWORD}
+      - KC_HOSTNAME=auth.${DOMAIN}
+      - KC_HOSTNAME_STRICT=false
+      - KC_PROXY=edge
+    volumes:
+      - ./keycloak/themes:/opt/keycloak/themes
+    networks:
+      - aris-network-prod
+    depends_on:
+      - keycloak-db
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.keycloak.rule=Host(`auth.${DOMAIN}`)"
+      - "traefik.http.routers.keycloak.entrypoints=websecure"
+      - "traefik.http.routers.keycloak.tls.certresolver=myresolver"
+
+  keycloak-db:
+    image: postgres:15
+    container_name: aris-keycloak-db
+    restart: always
+    environment:
+      POSTGRES_DB: keycloak
+      POSTGRES_USER: keycloak
+      POSTGRES_PASSWORD: ${KEYCLOAK_DB_PASSWORD}
+    volumes:
+      - keycloak_db_data:/var/lib/postgresql/data
+    networks:
+      - aris-network-prod
+
+volumes:
+  mongodb_primary_data:
+  mongodb_secondary_data:
+  mongodb_arbiter_data:
+  redis_node_1_data:
+  redis_node_2_data:
+  redis_node_3_data:
+  prometheus_data:
+  grafana_data:
+  keycloak_db_data:
+
+networks:
+  aris-network-prod:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16

@@ -1,0 +1,169 @@
+version: '3.8'
+
+services:
+  # MongoDB
+  mongodb:
+    image: mongo:6
+    container_name: aris-mongodb-dev
+    restart: unless-stopped
+    ports:
+      - "27017:27017"
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_USER:-admin}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_PASSWORD:-password123}
+      MONGO_INITDB_DATABASE: aris_neuro_dev
+    volumes:
+      - mongodb_data_dev:/data/db
+      - ./docker/mongo-init.js:/docker-entrypoint-initdb.d/mongo-init.js:ro
+    command: ["--auth", "--bind_ip_all"]
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  # Redis
+  redis:
+    image: redis:7-alpine
+    container_name: aris-redis-dev
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD:-redispass123}
+    volumes:
+      - redis_data_dev:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Backend API (Node.js)
+  backend:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.node
+      target: builder  # Для разработки используем builder stage
+    container_name: aris-backend-dev
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+      - "9229:9229"  # Для дебага
+    environment:
+      NODE_ENV: development
+      PORT: 3000
+      HOST: 0.0.0.0
+      MONGODB_URI: mongodb://${MONGO_USER:-admin}:${MONGO_PASSWORD:-password123}@mongodb:27017/aris_neuro_dev?authSource=admin
+      REDIS_URL: redis://:${REDIS_PASSWORD:-redispass123}@redis:6379
+      JWT_SECRET: ${JWT_SECRET:-dev-jwt-secret-change-in-production}
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      MISTRAL_API_KEY: ${MISTRAL_API_KEY}
+      LOG_LEVEL: debug
+      ENABLE_SWAGGER: "true"
+      WAIT_FOR_DB: "true"
+      WAIT_FOR_REDIS: "true"
+    volumes:
+      - .:/app
+      - /app/node_modules  # Избегаем overwrite node_modules
+      - ./logs:/app/logs
+      - ./uploads:/app/uploads
+    depends_on:
+      mongodb:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    command: npm run dev --prefix backend/node
+    healthcheck:
+      test: ["CMD", "node", "backend/node/scripts/healthcheck.js"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # Python ML Service
+  ml-service:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.python
+      target: builder  # Для разработки
+    container_name: aris-ml-service-dev
+    restart: unless-stopped
+    ports:
+      - "5000:5000"
+      - "50051:50051"
+    environment:
+      PYTHON_ENV: development
+      MODEL_DIR: /app/models
+      CACHE_DIR: /app/cache
+      REDIS_URL: redis://:${REDIS_PASSWORD:-redispass123}@redis:6379
+      WHISPER_MODEL: medium
+      ENABLE_CUDA: ${ENABLE_CUDA:-false}
+      LOG_LEVEL: debug
+    volumes:
+      - ./backend/python:/app/backend/python
+      - ./backend/node/python:/app/backend/node/python
+      - ./models:/app/models
+      - ./ml-logs:/app/logs
+      - ./ml-cache:/app/cache
+    depends_on:
+      redis:
+        condition: service_healthy
+    command: python3 backend/python/voice_processor.py --dev
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+  # Adminer для управления MongoDB
+  adminer:
+    image: adminer
+    container_name: aris-adminer-dev
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      ADMINER_DEFAULT_SERVER: mongodb
+    depends_on:
+      - mongodb
+
+  # Redis Commander
+  redis-commander:
+    image: rediscommander/redis-commander:latest
+    container_name: aris-redis-commander-dev
+    restart: unless-stopped
+    ports:
+      - "8081:8081"
+    environment:
+      REDIS_HOSTS: local:redis:6379:0:${REDIS_PASSWORD:-redispass123}
+    depends_on:
+      - redis
+
+  # Traefik для локального прокси (опционально)
+  reverse-proxy:
+    image: traefik:v2.10
+    container_name: aris-proxy-dev
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "8082:8082"  # Dashboard
+    command:
+      - "--api.insecure=true"
+      - "--providers.docker=true"
+      - "--providers.docker.exposedbydefault=false"
+      - "--entrypoints.web.address=:80"
+      - "--entrypoints.websecure.address=:443"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./docker/traefik-dev.yml:/etc/traefik/traefik.yml:ro
+    depends_on:
+      - backend
+      - ml-service
+
+volumes:
+  mongodb_data_dev:
+  redis_data_dev:

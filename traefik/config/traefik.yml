@@ -1,0 +1,176 @@
+# ARIS Neuro v3.0 - Traefik Configuration
+# Production-ready configuration with Let's Encrypt
+
+api:
+  dashboard: true
+  debug: true
+
+# Entrypoints
+entryPoints:
+  web:
+    address: ":80"
+    http:
+      redirections:
+        entryPoint:
+          to: websecure
+          scheme: https
+
+  websecure:
+    address: ":443"
+    http2:
+      maxConcurrentStreams: 250
+
+# TLS Configuration
+certificatesResolvers:
+  letsencrypt:
+    acme:
+      email: ${SSL_EMAIL}
+      storage: /letsencrypt/acme.json
+      keyType: EC256
+      tlsChallenge: {}
+      httpChallenge:
+        entryPoint: web
+
+# Providers
+providers:
+  docker:
+    endpoint: "unix:///var/run/docker.sock"
+    exposedByDefault: false
+    network: aris-network-prod
+
+  file:
+    filename: /etc/traefik/dynamic.yml
+    watch: true
+
+# Logging
+log:
+  level: INFO
+  format: common
+
+accessLog:
+  format: json
+  fields:
+    defaultMode: keep
+    names:
+      StartUTC: drop
+      ClientUsername: drop
+    headers:
+      defaultMode: keep
+      names:
+        User-Agent: redact
+        Authorization: drop
+
+# Metrics
+metrics:
+  prometheus:
+    entryPoint: websecure
+    addEntryPointsLabels: true
+    addServicesLabels: true
+
+# Tracing (optional)
+# tracing:
+#   jaeger:
+#     samplingServerURL: http://jaeger:5778/sampling
+#     samplingType: const
+#     samplingParam: 1.0
+
+# Ping (for health checks)
+ping:
+  entryPoint: web
+
+# Server Transport
+serversTransport:
+  insecureSkipVerify: true
+  maxIdleConnsPerHost: 10
+
+# Global HTTP Options
+http:
+  middlewares:
+    # Security headers
+    security-headers:
+      headers:
+        browserXssFilter: true
+        contentTypeNosniff: true
+        frameDeny: true
+        sslRedirect: true
+        # HSTS Configuration
+        stsIncludeSubdomains: true
+        stsPreload: true
+        stsSeconds: 31536000
+        customFrameOptionsValue: "SAMEORIGIN"
+        customResponseHeaders:
+          X-Robots-Tag: "none"
+          X-Content-Type-Options: "nosniff"
+          Referrer-Policy: "strict-origin-when-cross-origin"
+          Permissions-Policy: "geolocation=(), microphone=(), camera=()"
+          Server: ""
+
+    # Rate limiting
+    rate-limit-api:
+      rateLimit:
+        average: 100
+        burst: 50
+        period: 1m
+        sourceCriterion:
+          ipStrategy: {}
+
+    rate-limit-auth:
+      rateLimit:
+        average: 10
+        burst: 5
+        period: 1m
+        sourceCriterion:
+          ipStrategy: {}
+
+    # Basic authentication for admin endpoints
+    auth:
+      basicAuth:
+        users:
+          - "${TRAEFIK_AUTH}"
+
+    # CORS for API
+    cors:
+      headers:
+        accessControlAllowCredentials: true
+        accessControlAllowHeaders:
+          - "*"
+        accessControlAllowMethods:
+          - GET
+          - POST
+          - PUT
+          - DELETE
+          - OPTIONS
+          - PATCH
+        accessControlAllowOriginList:
+          - "https://${DOMAIN}"
+          - "https://app.${DOMAIN}"
+          - "https://api.${DOMAIN}"
+        accessControlMaxAge: 600
+        addVaryHeader: true
+
+    # Compression
+    compress:
+      compress: {}
+
+    # Circuit breaker
+    circuit-breaker:
+      circuitBreaker:
+        expression: "NetworkErrorRatio() > 0.50"
+
+    # Retry
+    retry:
+      retry:
+        attempts: 3
+        initialInterval: 100ms
+
+    # Timeouts
+    timeouts:
+      forwardingTimeouts:
+        dialTimeout: 30s
+        responseHeaderTimeout: 30s
+        idleConnTimeout: 90s
+
+# Global Options
+global:
+  checkNewVersion: false
+  sendAnonymousUsage: false

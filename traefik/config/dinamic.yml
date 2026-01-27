@@ -1,0 +1,138 @@
+# ARIS Neuro v3.0 - Dynamic Traefik Configuration
+
+# HTTP Routers
+http:
+  routers:
+    # Backend API Router
+    backend-router:
+      rule: "Host(`api.${DOMAIN}`)"
+      entryPoints:
+        - websecure
+      middlewares:
+        - security-headers
+        - cors
+        - rate-limit-api
+        - compress
+        - circuit-breaker
+        - retry
+        - timeouts
+      service: backend-service
+      tls:
+        certResolver: letsencrypt
+        domains:
+          - main: "${DOMAIN}"
+            sans:
+              - "*.${DOMAIN}"
+
+    # WebSocket Router
+    websocket-router:
+      rule: "Host(`api.${DOMAIN}`) && PathPrefix(`/api/v1/ws`)"
+      entryPoints:
+        - websecure
+      middlewares:
+        - security-headers
+      service: backend-service
+      tls:
+        certResolver: letsencrypt
+
+    # Frontend Router
+    frontend-router:
+      rule: "Host(`${DOMAIN}`) || Host(`app.${DOMAIN}`)"
+      entryPoints:
+        - websecure
+      middlewares:
+        - security-headers
+        - compress
+      service: frontend-service
+      tls:
+        certResolver: letsencrypt
+
+    # Traefik Dashboard (internal only)
+    traefik-dashboard:
+      rule: "Host(`traefik.${DOMAIN}`) && (ClientIP(`172.16.0.0/12`) || ClientIP(`192.168.0.0/16`) || ClientIP(`10.0.0.0/8`))"
+      entryPoints:
+        - websecure
+      middlewares:
+        - auth
+      service: api@internal
+      tls:
+        certResolver: letsencrypt
+
+    # Prometheus Metrics
+    prometheus-router:
+      rule: "Host(`prometheus.${DOMAIN}`) && (ClientIP(`172.16.0.0/12`) || ClientIP(`192.168.0.0/16`) || ClientIP(`10.0.0.0/8`))"
+      entryPoints:
+        - websecure
+      middlewares:
+        - auth
+      service: prometheus-service
+      tls:
+        certResolver: letsencrypt
+
+    # Grafana Dashboard
+    grafana-router:
+      rule: "Host(`grafana.${DOMAIN}`)"
+      entryPoints:
+        - websecure
+      service: grafana-service
+      tls:
+        certResolver: letsencrypt
+
+    # Health Check Router (public)
+    health-router:
+      rule: "Host(`api.${DOMAIN}`) && PathPrefix(`/health`)"
+      entryPoints:
+        - websecure
+      service: backend-service
+      tls:
+        certResolver: letsencrypt
+
+  # Services
+  services:
+    backend-service:
+      loadBalancer:
+        servers:
+          - url: "http://backend:3000"
+        healthCheck:
+          path: "/health"
+          interval: "30s"
+          timeout: "5s"
+        passHostHeader: true
+        sticky:
+          cookie:
+            name: aris_session
+            secure: true
+            httpOnly: true
+
+    frontend-service:
+      loadBalancer:
+        servers:
+          - url: "http://frontend:80"
+        passHostHeader: true
+
+    prometheus-service:
+      loadBalancer:
+        servers:
+          - url: "http://prometheus:9090"
+
+    grafana-service:
+      loadBalancer:
+        servers:
+          - url: "http://grafana:3000"
+
+# TCP Routers (for non-HTTP services if needed)
+tcp:
+  routers:
+    mongodb-router:
+      rule: "HostSNI(`*`)"
+      entryPoints:
+        - mongodb
+      service: mongodb-service
+      tls:
+        passthrough: true
+
+  services:
+    mongodb-service:
+      loadBalancer:
+        servers:
+          - address: "mongodb-primary:27017"

@@ -1,0 +1,161 @@
+version: '3.8'
+
+services:
+  # MongoDB
+  mongodb:
+    image: mongo:6.0
+    container_name: aris-mongodb
+    restart: unless-stopped
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_ROOT_USER:-admin}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_ROOT_PASSWORD:-aris_password}
+      MONGO_INITDB_DATABASE: ${MONGO_DATABASE:-aris_neuro}
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongodb_data:/data/db
+    command: mongod --auth --bind_ip_all
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - aris-network
+
+  # Redis
+  redis:
+    image: redis:7-alpine
+    container_name: aris-redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - aris-network
+
+  # Node.js Backend
+  backend:
+    build:
+      context: ../..
+      dockerfile: infrastructure/docker/Dockerfile.node
+    container_name: aris-backend
+    restart: unless-stopped
+    depends_on:
+      mongodb:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      NODE_ENV: ${NODE_ENV:-development}
+      PORT: 3000
+      JWT_SECRET: ${JWT_SECRET}
+      MONGODB_URI: mongodb://${MONGO_ROOT_USER:-admin}:${MONGO_ROOT_PASSWORD:-aris_password}@mongodb:27017/${MONGO_DATABASE:-aris_neuro}?authSource=admin
+      REDIS_URL: redis://redis:6379
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      MISTRAL_API_KEY: ${MISTRAL_API_KEY}
+      WHISPER_MODEL: ${WHISPER_MODEL:-medium}
+      PYTHON_SERVICE_URL: http://python-ml:5000
+    ports:
+      - "3000:3000"
+    volumes:
+      - ../../backend/node:/app
+      - ./logs:/app/logs
+      - ./temp:/app/temp
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - aris-network
+
+  # Python ML Service
+  python-ml:
+    build:
+      context: ../..
+      dockerfile: infrastructure/docker/Dockerfile.python
+    container_name: aris-python-ml
+    restart: unless-stopped
+    environment:
+      PYTHONUNBUFFERED: '1'
+      WHISPER_MODEL: ${WHISPER_MODEL:-medium}
+      TTS_MODEL: ${TTS_MODEL:-tts_models/ru/ru_ruslan}
+      REDIS_URL: redis://redis:6379
+    ports:
+      - "5000:5000"
+    volumes:
+      - ../../backend/python:/app
+      - ./models:/app/models
+      - ./temp:/app/temp
+      - ./logs:/app/logs
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - aris-network
+
+  # Nginx для статики и балансировки
+  nginx:
+    image: nginx:stable-alpine
+    container_name: aris-nginx
+    restart: unless-stopped
+    depends_on:
+      - backend
+      - python-ml
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/ssl:/etc/nginx/ssl:ro
+      - ./logs/nginx:/var/log/nginx
+      - ../../frontend/build:/usr/share/nginx/html:ro
+    networks:
+      - aris-network
+
+  # Prometheus для мониторинга
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: aris-prometheus
+    restart: unless-stopped
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    networks:
+      - aris-network
+
+  # Grafana для визуализации
+  grafana:
+    image: grafana/grafana:latest
+    container_name: aris-grafana
+    restart: unless-stopped
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:-admin}
+    ports:
+      - "3001:3000"
+    volumes:
+      - grafana_data:/var/lib/grafana
+    networks:
+      - aris-network
+
+volumes:
+  mongodb_data:
+  redis_data:
+  prometheus_data:
+  grafana_data:
+
+networks:
+  aris-network:
+    driver: bridge

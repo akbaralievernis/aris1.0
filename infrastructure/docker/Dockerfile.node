@@ -1,0 +1,105 @@
+FROM node:18-alpine
+WORKDIR /app
+COPY backend/node/package.json ./
+RUN npm install --production
+COPY backend/node .
+CMD ["node","server.js"]
+# ARIS Neuro v3.0 - Node.js Backend Dockerfile
+# Многоступенчатая сборка для production
+
+# ============ STAGE 1: Билдер ============
+FROM node:18-alpine AS builder
+
+# Устанавливаем системные зависимости
+RUN apk add --no-cache \
+    python3 \
+    make \
+    g++ \
+    git \
+    curl \
+    openssl \
+    && rm -rf /var/cache/apk/*
+
+# Создаем рабочую директорию
+WORKDIR /app
+
+# Копируем package.json и package-lock.json
+COPY package*.json ./
+COPY backend/node/package*.json ./backend/node/
+
+# Устанавливаем зависимости с кэшированием
+RUN npm ci --only=production --prefix backend/node \
+    && npm cache clean --force
+
+# Копируем исходный код
+COPY . .
+
+# Создаем оптимизированную сборку
+RUN npm run build --prefix backend/node
+
+# ============ STAGE 2: Продакшен ============
+FROM node:18-alpine AS production
+
+# Устанавливаем системные зависимости для production
+RUN apk add --no-cache \
+    python3 \
+    tini \
+    curl \
+    && ln -sf python3 /usr/bin/python \
+    && rm -rf /var/cache/apk/*
+
+# Устанавливаем часовой пояс
+RUN apk add --no-cache tzdata
+ENV TZ=Europe/Moscow
+
+# Создаем не-root пользователя для безопасности
+RUN addgroup -g 1001 -S nodejs \
+    && adduser -S nodejs -u 1001 -G nodejs
+
+# Создаем необходимые директории
+RUN mkdir -p /app/logs /app/temp /app/uploads /app/backups \
+    && chown -R nodejs:nodejs /app
+
+# Устанавливаем рабочую директорию
+WORKDIR /app
+
+# Копируем установленные зависимости из билдера
+COPY --from=builder --chown=nodejs:nodejs /app/backend/node/node_modules ./node_modules
+COPY --from=builder --chown=nodejs:nodejs /app/backend/node ./backend/node
+
+# Копируем только необходимые файлы
+COPY --from=builder --chown=nodejs:nodejs /app/package*.json ./
+COPY --from=builder --chown=nodejs:nodejs /app/backend/python ./backend/python
+COPY --from=builder --chown=nodejs:nodejs /app/scripts ./scripts
+
+# Копируем конфигурационные файлы
+COPY --chown=nodejs:nodejs docker/entrypoint.sh /entrypoint.sh
+COPY --chown=nodejs:nodejs docker/healthcheck.sh /healthcheck.sh
+
+# Устанавливаем права
+RUN chmod +x /entrypoint.sh /healthcheck.sh
+
+# Переключаемся на не-root пользователя
+USER nodejs
+
+# Настройка окружения
+ENV NODE_ENV=production
+ENV PORT=3000
+ENV HOST=0.0.0.0
+ENV LOG_LEVEL=info
+ENV MAX_MEMORY=512
+ENV UV_THREADPOOL_SIZE=16
+
+# Открываем порты
+EXPOSE 3000
+EXPOSE 9229 # Для дебага
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
+    CMD ["/healthcheck.sh"]
+
+# Используем tini как init процесс
+ENTRYPOINT ["/sbin/tini", "--", "/entrypoint.sh"]
+
+# Команда по умолчанию
+CMD ["node", "backend/node/server.js"]

@@ -1,0 +1,64 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: aris-neuro-backend
+  namespace: aris-neuro
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: aris-neuro-backend
+  template:
+    metadata:
+      labels:
+        app: aris-neuro-backend
+    spec:
+      containers:
+      - name: backend
+        image: your-registry/aris-neuro-backend:v3.0.0
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 3000
+        envFrom:
+        - configMapRef:
+            name: aris-neuro-config
+        - secretRef:
+            name: aris-neuro-secrets
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "500m"
+          limits:
+            memory: "1Gi"
+            cpu: "1000m"
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 3000
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 3000
+          initialDelaySeconds: 5
+          periodSeconds: 5
+        volumeMounts:
+        - name: logs
+          mountPath: /app/logs
+        - name: temp
+          mountPath: /app/temp
+      volumes:
+      - name: logs
+        persistentVolumeClaim:
+          claimName: logs-pvc
+      - name: temp
+        emptyDir: {}
+      nodeSelector:
+        node-type: compute-optimized
+      tolerations:
+      - key: "dedicated"
+        operator: "Equal"
+        value: "aris-neuro"
+        effect: "NoSchedule"

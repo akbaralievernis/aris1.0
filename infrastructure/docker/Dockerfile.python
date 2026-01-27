@@ -1,0 +1,102 @@
+FROM python:3.11-slim
+WORKDIR /app
+COPY backend/python/requirements.txt ./
+RUN pip install -r requirements.txt
+COPY backend/python .
+CMD ["python","voice_processor.py"]
+# ARIS Neuro v3.0 - Python ML Service Dockerfile
+# Сборка с поддержкой CUDA для ML моделей
+
+# ============ STAGE 1: Базовый образ с CUDA ============
+FROM nvidia/cuda:11.8.0-runtime-ubuntu22.04 AS base
+
+# Устанавливаем системные зависимости
+RUN apt-get update && apt-get install -y \
+    python3.10 \
+    python3.10-dev \
+    python3-pip \
+    python3-venv \
+    git \
+    curl \
+    wget \
+    ffmpeg \
+    libsndfile1 \
+    libportaudio2 \
+    libavcodec-extra \
+    && rm -rf /var/lib/apt/lists/*
+
+# Создаем альтернативные ссылки для python
+RUN update-alternatives --install /usr/bin/python python /usr/bin/python3.10 1 \
+    && update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.10 1
+
+# Создаем виртуальное окружение
+RUN python3 -m venv /opt/venv
+ENV PATH="/opt/venv/bin:$PATH"
+
+# Обновляем pip
+RUN pip install --no-cache-dir --upgrade pip setuptools wheel
+
+# ============ STAGE 2: Билдер зависимостей ============
+FROM base AS builder
+
+# Копируем requirements файлы
+COPY backend/python/requirements*.txt /tmp/
+
+# Устанавливаем зависимости с кэшированием
+RUN pip install --no-cache-dir \
+    torch torchvision torchaudio --index-url https://download.pytorch.org/whisper/torch_stable.html \
+    && pip install --no-cache-dir -r /tmp/requirements.txt \
+    && if [ -f /tmp/requirements-dev.txt ]; then pip install --no-cache-dir -r /tmp/requirements-dev.txt; fi
+
+# ============ STAGE 3: Продакшен ============
+FROM base AS production
+
+# Создаем не-root пользователя
+RUN groupadd -r pythonuser && useradd -r -g pythonuser -m -d /app pythonuser
+
+# Создаем директории
+RUN mkdir -p /app/logs /app/temp /app/models /app/cache \
+    && chown -R pythonuser:pythonuser /app
+
+# Копируем виртуальное окружение из билдера
+COPY --from=builder /opt/venv /opt/venv
+
+# Копируем исходный код
+COPY --chown=pythonuser:pythonuser backend/python /app/backend/python
+COPY --chown=pythonuser:pythonuser backend/node/python /app/backend/node/python
+
+# Копируем модели (если есть)
+COPY --chown=pythonuser:pythonuser models /app/models
+
+# Копируем скрипты
+COPY --chown=pythonuser:pythonuser scripts /app/scripts
+COPY --chown=pythonuser:pythonuser docker/entrypoint-python.sh /entrypoint.sh
+
+# Устанавливаем права
+RUN chmod +x /entrypoint.sh
+
+# Переключаемся на не-root пользователя
+USER pythonuser
+
+# Настройка окружения
+WORKDIR /app
+ENV PYTHONPATH=/app:/app/backend/python:$PYTHONPATH
+ENV PYTHONUNBUFFERED=1
+ENV CACHE_DIR=/app/cache
+ENV MODEL_DIR=/app/models
+ENV LOG_LEVEL=info
+ENV CUDA_VISIBLE_DEVICES=0
+
+# Открываем порт для gRPC/REST API
+EXPOSE 50051
+EXPOSE 5000
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=3s --start-period=10s --retries=3 \
+    CMD ["python3", "-c", "import sys; sys.exit(0 if __import__('torch').cuda.is_available() else 1)"]
+
+# Точка входа
+ENTRYPOINT ["/entrypoint.sh"]
+
+# Команда по умолчанию
+CMD ["python3", "backend/python/voice_processor.py"]
