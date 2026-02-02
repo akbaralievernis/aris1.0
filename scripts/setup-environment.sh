@@ -34,7 +34,14 @@ check_dependency npm || MISSING_DEPS=1
 check_dependency python3 || MISSING_DEPS=1
 check_dependency pip3 || MISSING_DEPS=1
 check_dependency docker || MISSING_DEPS=1
-check_dependency docker-compose || MISSING_DEPS=1
+if command -v docker-compose &> /dev/null; then
+    echo -e "${GREEN}✅ docker-compose установлен${NC}"
+elif docker compose version &> /dev/null; then
+    echo -e "${GREEN}✅ docker compose доступен${NC}"
+else
+    echo -e "${RED}❌ docker-compose или docker compose не установлен${NC}"
+    MISSING_DEPS=1
+fi
 
 if [ $MISSING_DEPS -eq 1 ]; then
     echo -e "${RED}Установите недостающие зависимости перед продолжением${NC}"
@@ -147,5 +154,5 @@ echo "2. Убедитесь, что MongoDB и Redis запущены"
 echo "3. Запустите приложение:"
 echo "   - Node.js: cd backend/node && npm start"
 echo "   - Python: cd backend/python && source venv/bin/activate && python voice_processor.py"
-echo "   - Или используйте Docker: docker-compose up"
+echo "   - Или используйте Docker: docker compose up (или docker-compose up)"
 echo ""

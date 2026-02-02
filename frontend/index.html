@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html lang="ru">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>ARIS Neuro v3.0 — Интеллектуальный голосовой ассистент</title>
+    <meta
+      name="description"
+      content="ARIS Neuro — интеллектуальный ассистент нового поколения с голосовым управлением, быстрым откликом и безопасной архитектурой."
+    />
+    <link rel="stylesheet" href="./assets/style.css" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@500;600;700&display=swap"
+      rel="stylesheet"
+    />
+  </head>
+  <body>
+    <div class="background">
+      <span class="orb orb--one"></span>
+      <span class="orb orb--two"></span>
+      <span class="orb orb--three"></span>
+    </div>
+
+    <header class="site-header">
+      <nav class="nav">
+        <a class="logo" href="#hero">
+          <span class="logo__mark">ARIS</span>
+          <span class="logo__version">v3.0</span>
+        </a>
+        <button class="nav__toggle" type="button" aria-expanded="false" aria-controls="nav-menu">
+          <span></span>
+          <span></span>
+          <span></span>
+          <span class="sr-only">Открыть меню</span>
+        </button>
+        <div id="nav-menu" class="nav__menu">
+          <a href="#features">Возможности</a>
+          <a href="#workflow">Сценарии</a>
+          <a href="#security">Безопасность</a>
+          <a href="#cta">Запуск</a>
+        </div>
+        <div class="nav__actions">
+          <button class="btn btn--ghost">Войти</button>
+          <button class="btn btn--primary">Запросить доступ</button>
+        </div>
+      </nav>
+    </header>
+
+    <main>
+      <section id="hero" class="hero">
+        <div class="hero__content">
+          <p class="badge">Голосовой AI ассистент нового поколения</p>
+          <h1>
+            ARIS Neuro помогает командам быстрее принимать решения,
+            <span class="gradient-text">понимать контекст</span> и управлять задачами голосом.
+          </h1>
+          <p class="hero__subtitle">
+            Интеллектуальная память, мульти-провайдерный AI и real-time коммуникация — в одном интерфейсе.
+          </p>
+          <div class="hero__actions">
+            <button class="btn btn--primary">Запустить демо</button>
+            <button class="btn btn--secondary">Смотреть обзор</button>
+          </div>
+          <div class="hero__metrics">
+            <div>
+              <h3>120мс</h3>
+              <p>Среднее время ответа</p>
+            </div>
+            <div>
+              <h3>98%</h3>
+              <p>Точность распознавания речи</p>
+            </div>
+            <div>
+              <h3>24/7</h3>
+              <p>Режим непрерывной работы</p>
+            </div>
+          </div>
+        </div>
+        <div class="hero__visual">
+          <div class="glass-card">
+            <div class="assistant-header">
+              <div class="assistant-avatar"></div>
+              <div>
+                <p class="assistant-title">ARIS Neuro</p>
+                <p class="assistant-status">
+                  <span class="status-dot"></span>
+                  Онлайн • WebSocket подключен
+                </p>
+              </div>
+            </div>
+            <div class="assistant-chat">
+              <div class="message message--ai">
+                Доброе утро! Я подготовил аналитику по вашим проектам и расписание на сегодня.
+              </div>
+              <div class="message message--user">Покажи краткий отчёт и отметь риски.</div>
+              <div class="message message--ai message--typing">
+                <span></span><span></span><span></span>
+              </div>
+            </div>
+            <div class="assistant-footer">
+              <span class="chip">Голосовой режим активен</span>
+              <button class="btn btn--ghost btn--icon">🎙️</button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section id="features" class="features section">
+        <div class="section__heading">
+          <p class="section__eyebrow">Возможности</p>
+          <h2>Инструменты для полного контроля над знаниями и коммуникацией.</h2>
+        </div>
+        <div class="features__grid">
+          <article class="feature-card reveal">
+            <h3>Контекстная память</h3>
+            <p>Сохраняйте важные факты, напоминания и контекст разговоров. Поиск и аналитика в один клик.</p>
+          </article>
+          <article class="feature-card reveal">
+            <h3>Голосовой поток</h3>
+            <p>Непрерывное распознавание речи, wake-word и визуализатор громкости с адаптивными анимациями.</p>
+          </article>
+          <article class="feature-card reveal">
+            <h3>Мульти-AI</h3>
+            <p>Подключайте OpenAI, Mistral, Anthropic или локальные модели и переключайтесь без потери контекста.</p>
+          </article>
+          <article class="feature-card reveal">
+            <h3>Real-time координация</h3>
+            <p>WebSocket-события, мгновенные уведомления и синхронизация команд в реальном времени.</p>
+          </article>
+        </div>
+      </section>
+
+      <section id="workflow" class="workflow section">
+        <div class="section__heading">
+          <p class="section__eyebrow">Сценарии</p>
+          <h2>Готовые сценарии работы для команд любого масштаба.</h2>
+        </div>
+        <div class="workflow__steps">
+          <div class="workflow__step reveal">
+            <span>01</span>
+            <h3>Подключение</h3>
+            <p>Быстрое развертывание через Docker Compose или Kubernetes.</p>
+          </div>
+          <div class="workflow__step reveal">
+            <span>02</span>
+            <h3>Обучение ассистента</h3>
+            <p>Загрузите контент, задайте правила и создайте шаблоны ответов.</p>
+          </div>
+          <div class="workflow__step reveal">
+            <span>03</span>
+            <h3>Работа в реальном времени</h3>
+            <p>Используйте голос, чат и аналитику для управления задачами.</p>
+          </div>
+        </div>
+      </section>
+
+      <section id="security" class="security section">
+        <div class="section__heading">
+          <p class="section__eyebrow">Безопасность</p>
+          <h2>Надежная защита на каждом уровне.</h2>
+        </div>
+        <div class="security__grid">
+          <div class="security__card reveal">
+            <h3>Zero-trust подход</h3>
+            <p>JWT, ротация токенов и строгие политики доступа к данным.</p>
+          </div>
+          <div class="security__card reveal">
+            <h3>Наблюдаемость</h3>
+            <p>Логи, метрики, tracing и алерты в едином мониторинге.</p>
+          </div>
+          <div class="security__card reveal">
+            <h3>Стабильная инфраструктура</h3>
+            <p>Горизонтальное масштабирование и отказоустойчивость для критичных сервисов.</p>
+          </div>
+        </div>
+      </section>
+
+      <section id="cta" class="cta section">
+        <div class="cta__content">
+          <h2>Готовы запустить ARIS Neuro в вашей инфраструктуре?</h2>
+          <p>Следуйте краткому гайду и начните работу без ошибок.</p>
+          <button class="btn btn--primary">Получить инструкцию</button>
+        </div>
+        <div class="cta__card">
+          <h3>Чеклист запуска</h3>
+          <ul>
+            <li>Настроить .env с ключами AI-провайдеров</li>
+            <li>Запустить MongoDB и Redis</li>
+            <li>Поднять backend и frontend</li>
+            <li>Проверить WebSocket статус</li>
+          </ul>
+        </div>
+      </section>
+    </main>
+
+    <footer class="site-footer">
+      <div>
+        <p class="logo">ARIS Neuro</p>
+        <p class="muted">Интеллектуальный голосовой ассистент нового поколения.</p>
+      </div>
+      <div class="footer__status">
+        <span class="status-dot"></span>
+        <span>Система готова к подключению</span>
+      </div>
+      <p class="muted">© <span id="year"></span> ARIS Neuro. Все права защищены.</p>
+    </footer>
+
+    <script src="./assets/main.js"></script>
+  </body>
+</html>
